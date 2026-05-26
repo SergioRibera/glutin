@@ -26,11 +26,11 @@ use glutin::prelude::*;
 use raw_window_handle::HasWindowHandle;
 
 use raw_window_handle::RawWindowHandle;
-use winit::error::OsError;
+use winit::error::RequestError;
 use winit::window::{Window, WindowAttributes};
 
 #[cfg(x11_platform)]
-use winit::platform::x11::WindowAttributesExtX11;
+use winit::platform::x11::WindowAttributesX11;
 #[cfg(glx_backend)]
 use winit::platform::x11::register_xlib_error_hook;
 
@@ -96,10 +96,10 @@ impl DisplayBuilder {
     /// otherwise only builtin functions like `glClear` will be available.
     pub fn build<Picker>(
         mut self,
-        event_loop: &impl GlutinEventLoop,
+        event_loop: &(impl GlutinEventLoop + ?Sized),
         template_builder: ConfigTemplateBuilder,
         config_picker: Picker,
-    ) -> Result<(Option<Window>, Config), Box<dyn Error>>
+    ) -> Result<(Option<Box<dyn Window>>, Config), Box<dyn Error>>
     where
         Picker: FnOnce(Box<dyn Iterator<Item = Config> + '_>) -> Config,
     {
@@ -149,7 +149,7 @@ impl DisplayBuilder {
 }
 
 fn create_display(
-    event_loop: &impl GlutinEventLoop,
+    event_loop: &(impl GlutinEventLoop + ?Sized),
     _api_preference: ApiPreference,
     _raw_window_handle: Option<RawWindowHandle>,
 ) -> Result<Display, Box<dyn Error>> {
@@ -192,10 +192,10 @@ fn create_display(
 /// [`Window`]: winit::window::Window
 /// [`Config`]: glutin::config::Config
 pub fn finalize_window(
-    event_loop: &impl GlutinEventLoop,
+    event_loop: &(impl GlutinEventLoop + ?Sized),
     mut attributes: WindowAttributes,
     gl_config: &Config,
-) -> Result<Window, OsError> {
+) -> Result<Box<dyn Window>, RequestError> {
     // Disable transparency if the end config doesn't support it.
     if gl_config.supports_transparency() == Some(false) {
         attributes = attributes.with_transparent(false);
@@ -203,7 +203,9 @@ pub fn finalize_window(
 
     #[cfg(x11_platform)]
     let attributes = if let Some(x11_visual) = gl_config.x11_visual() {
-        attributes.with_x11_visual(x11_visual.visual_id() as _)
+        let x11_attrs = WindowAttributesX11::default()
+            .with_x11_visual(x11_visual.visual_id() as _);
+        attributes.with_platform_attributes(Box::new(x11_attrs))
     } else {
         attributes
     };
